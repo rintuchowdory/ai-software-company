@@ -15,7 +15,7 @@ from enum import Enum
 # LangGraph
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_anthropic import ChatAnthropic
+from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 
 # Load env
@@ -70,11 +70,11 @@ class AgentRunner:
     def __init__(self, agent_name: str):
         self.name = agent_name
         self.prompt_path = f"agents/{agent_name}/system_prompt.md"
-        self.llm = ChatAnthropic(
-            model="claude-3-5-sonnet-20241022",
+        self.llm = ChatGroq(
+            model="llama-3.3-70b-versatile",
             temperature=0.2,
-            max_tokens=4096,
-            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY")
+            max_tokens=6000,
+            api_key=os.getenv("GROQ_API_KEY")
         )
 
     def load_prompt(self) -> str:
@@ -111,14 +111,14 @@ Output strict JSON matching your defined output format.
             output = self._parse_output(response.content)
 
             # Store in agent memory
-            state.agent_memory[agent_name] = {
+            state.agent_memory[self.name] = {
                 "last_output": output,
                 "timestamp": datetime.now().isoformat()
             }
 
             return output
         except Exception as e:
-            return {"error": str(e), "agent": agent_name}
+            return {"error": str(e), "agent": self.name}
 
     def _parse_output(self, content: str) -> Dict[str, Any]:
         """Parse JSON from LLM output, handling markdown fences."""
@@ -278,7 +278,6 @@ def create_workflow() -> StateGraph:
     workflow.add_edge("ceo", "pm")
     workflow.add_edge("pm", "designer")
     workflow.add_edge("designer", "frontend")
-    workflow.add_edge("designer", "backend")
 
     # Frontend <-> Backend negotiation
     def frontend_condition(state: WorkflowState) -> str:
@@ -288,12 +287,7 @@ def create_workflow() -> StateGraph:
             return "negotiate"
         return "proceed_to_qa"
 
-    workflow.add_conditional_edges(
-        "frontend",
-        frontend_condition,
-        {"negotiate": "backend", "proceed_to_qa": "qa"}
-    )
-
+    workflow.add_edge("frontend", "backend")
     workflow.add_edge("backend", "qa")
 
     # QA -> DevOps or PM
@@ -386,7 +380,7 @@ def run_ai_company(trigger: str = "weekly_review", max_loops: int = 50) -> Dict[
     )
 
     try:
-        result = workflow.invoke(initial_state)
+        result = workflow.invoke(initial_state, config={"configurable": {"thread_id": trigger}})
         return {
             "success": True,
             "final_state": result,
