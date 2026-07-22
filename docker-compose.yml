@@ -1,0 +1,86 @@
+version: "3.8"
+
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - E2B_API_KEY=${E2B_API_KEY}
+      - DATABASE_URL=postgresql://aicompany:password@postgres:5432/project_state
+      - REDIS_URL=redis://redis:6379
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+    volumes:
+      - ./orchestrator:/app/orchestrator
+      - ./agents:/app/agents
+      - ./memory:/app/memory
+      - ./security:/app/security
+      - ./frontend:/app/frontend
+      - ./backend:/app/backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    command: python -m orchestrator.main --trigger weekly_review
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    environment:
+      - DATABASE_URL=postgresql://aicompany:password@postgres:5432/project_state
+      - REDIS_URL=redis://redis:6379
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aicompany
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: project_state
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./memory/structured/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/monitoring/dashboards:/etc/grafana/provisioning/dashboards
+      - ./infra/monitoring/datasources:/etc/grafana/provisioning/datasources
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
